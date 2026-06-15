@@ -1,67 +1,51 @@
 """
-CrewAI Task definitions.
-Tasks receive agents at build time and accept {user_query} as a runtime input.
+CrewAI Task definitions — loaded from config/tasks.yaml.
+
+The write_final_report task now has:
+  - write_report_guardrail: enforces Summary / Insights / Citations sections
 """
 
+import os
+import yaml
 from crewai import Task, Agent
+
+from app.crews.guardrails import write_report_guardrail
+
+CONFIG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "config")
+
+
+def _load_task_config() -> dict:
+    config_path = os.path.join(CONFIG_DIR, "tasks.yaml")
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def build_tasks(agents: dict[str, Agent]) -> list[Task]:
     """
-    Build all four research tasks in pipeline order.
-    Returns list in execution order: plan → gather → verify → write.
+    Build all four research tasks from YAML config in pipeline order:
+    plan → gather → verify → write
     """
+    task_config = _load_task_config()
 
     create_research_plan = Task(
-        description=(
-            "Based on the user's query, break it down into specific topics and key questions, "
-            "and create a focused research plan.\n"
-            "The user's query is: {user_query}"
-        ),
-        expected_output=(
-            "A research plan with main research topics to investigate, "
-            "key questions for each topic, and success criteria for the research."
-        ),
+        config=task_config["create_research_plan"],
         agent=agents["research_planner"],
     )
 
     gather_research_data = Task(
-        description=(
-            "Using the research plan, collect information on all identified topics. "
-            "Cite all sources used."
-        ),
-        expected_output=(
-            "Comprehensive research data including: information for each "
-            "research topic, and citations used along with source credibility notes."
-        ),
+        config=task_config["gather_research_data"],
         agent=agents["researcher"],
     )
 
     verify_information_quality = Task(
-        description=(
-            "Review all collected research. Identify any conflicting information, "
-            "potential misinformation, or gaps that need addressing."
-        ),
-        expected_output=(
-            "A report with all the original data you got plus any "
-            "verified facts vs. questionable information, make sure this is as comprehensive "
-            "as possible for final report generation."
-        ),
+        config=task_config["verify_information_quality"],
         agent=agents["fact_checker"],
     )
 
     write_final_report = Task(
-        description=(
-            "Create a comprehensive report that answers the original query using all verified "
-            "research data. Structure it with clear sections, include citations, and provide "
-            "actionable insights."
-        ),
-        expected_output=(
-            "A final research report containing: executive summary, detailed "
-            "findings that answer the user query, supporting evidence and analysis, complete "
-            "source citations."
-        ),
+        config=task_config["write_final_report"],
         agent=agents["report_writer"],
+        guardrails=[write_report_guardrail],   # ← new: structural validation
     )
 
     return [

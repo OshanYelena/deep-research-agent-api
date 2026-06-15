@@ -11,6 +11,12 @@ Stage mapping (CrewAI executes tasks sequentially, so we map task index → stag
   1 → RESEARCHING
   2 → FACT_CHECKING
   3 → WRITING
+
+Updates (v2):
+  - Agents/tasks now loaded from config/agents.yaml + config/tasks.yaml
+  - report_writer has CustomPlotTool for auto chart generation
+  - write_final_report has write_report_guardrail (Summary/Insights/Citations)
+  - Crew: memory=True, after_kickoff_callbacks=[save_report_hook]
 """
 
 import asyncio
@@ -29,6 +35,8 @@ from app.core.job_store import job_store
 
 logger = logging.getLogger(__name__)
 
+REPORTS_DIR = os.environ.get("REPORTS_DIR", "reports")
+
 # Ordered stage list mirrors task pipeline
 STAGE_ORDER = [
     AgentStage.PLANNING,
@@ -38,13 +46,41 @@ STAGE_ORDER = [
 ]
 
 
-def build_crew() -> Crew:
-    """Build a fresh Crew for each job (avoids shared state between runs)."""
+def _make_save_report_hook(job_id: str):
+    """
+    Factory that returns a CrewAI after_kickoff_callback bound to a job_id.
+    Saves the final markdown report to disk under reports/<job_id>.md
+    """
+    def save_report_hook(result) -> None:
+        try:
+            if hasattr(result, "tasks_output") and result.tasks_output:
+                content = result.tasks_output[-1].raw
+            else:
+                content = str(result)
+
+            os.makedirs(REPORTS_DIR, exist_ok=True)
+            filename = os.path.join(REPORTS_DIR, f"{job_id}.md")
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(content)
+            logger.info(f"Report saved to: {filename}")
+        except Exception as e:
+            logger.warning(f"Failed to save report for job {job_id}: {e}")
+
+    return save_report_hook
+
+
+def build_crew(job_id: str) -> Crew:
+    """
+    Build a fresh Crew for each job (avoids shared state between runs).
+    Includes memory, guardrails, CustomPlotTool, and file-save hook.
+    """
     agents = build_agents()
     tasks = build_tasks(agents)
     return Crew(
         agents=list(agents.values()),
         tasks=tasks,
+        memory=True,                                          # ← cross-task memory
+        after_kickoff_callbacks=[_make_save_report_hook(job_id)],  # ← save report to disk
         verbose=True,
     )
 
@@ -79,7 +115,7 @@ async def run_research_job(
     )
 
     try:
-        crew = build_crew()
+        crew = build_crew(job_id=job_id)
 
         # We intercept task callbacks via CrewAI's step_callback.
         # CrewAI calls step_callback after each agent step, not after each task,

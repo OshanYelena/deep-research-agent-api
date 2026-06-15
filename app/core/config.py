@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     AGENT_MAX_RPM: int = 150
     AGENT_MAX_ITER: int = 15
 
+    # ── Output Directories ────────────────────────────────────────────────────
+    # Where generated charts and markdown reports are saved on disk
+    PLOTS_DIR: str = "plots"
+    REPORTS_DIR: str = "reports"
+
     # ── Job Store ─────────────────────────────────────────────────────────────
     # Max jobs kept in memory before oldest are evicted
     MAX_JOBS_IN_MEMORY: int = 100

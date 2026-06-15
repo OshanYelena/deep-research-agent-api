@@ -1,12 +1,26 @@
 """
-CrewAI Agent definitions.
-All agents are instantiated fresh per-job to avoid state bleed between runs.
+CrewAI Agent definitions — loaded from config/agents.yaml.
+
+Agents are instantiated fresh per-job to avoid state bleed between runs.
+The report_writer agent now includes the CustomPlotTool.
 """
 
+import os
+import yaml
 from crewai import Agent
 from crewai_tools import EXASearchTool, ScrapeWebsiteTool
 
 from app.core.config import settings
+from app.tools.plot_tool import CustomPlotTool
+
+# Path to config dir relative to project root (where uvicorn is run from)
+CONFIG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "config")
+
+
+def _load_agent_config() -> dict:
+    config_path = os.path.join(CONFIG_DIR, "agents.yaml")
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def _make_search_tools() -> tuple[EXASearchTool, ScrapeWebsiteTool]:
@@ -18,34 +32,21 @@ def _make_search_tools() -> tuple[EXASearchTool, ScrapeWebsiteTool]:
 
 def build_agents() -> dict[str, Agent]:
     """
-    Build and return all four research agents.
-    Returns a dict keyed by role slug for easy reference.
+    Build and return all four research agents from YAML config.
+    Returns a dict keyed by config slug.
     """
+    agent_config = _load_agent_config()
     exa_tool, scrape_tool = _make_search_tools()
 
     research_planner = Agent(
-        role="Research Planner",
-        goal="Analyze queries and break them down into smaller, specific research topics.",
-        backstory=(
-            "You are a research strategist who excels at breaking down complex questions "
-            "into manageable research components. You identify what needs to be researched "
-            "and create clear research objectives."
-        ),
+        config=agent_config["research_planner"],
         verbose=True,
         max_rpm=settings.AGENT_MAX_RPM,
         max_iter=settings.AGENT_MAX_ITER,
     )
 
     researcher = Agent(
-        role="Internet Researcher",
-        goal="Research thoroughly all assigned topics",
-        backstory=(
-            "You are a skilled researcher with experience in online investigation "
-            "and data collection. You know how to find reliable sources, extract relevant "
-            "information, and always verify facts across multiple sources to avoid "
-            "misinformation or hallucination. You never invent facts and always trace "
-            "information to its origin."
-        ),
+        config=agent_config["internet_researcher"],
         tools=[exa_tool, scrape_tool],
         verbose=True,
         max_rpm=settings.AGENT_MAX_RPM,
@@ -53,18 +54,7 @@ def build_agents() -> dict[str, Agent]:
     )
 
     fact_checker = Agent(
-        role="Fact Checker",
-        goal=(
-            "Verify data for accuracy, identify inconsistencies, "
-            "and flag potential misinformation"
-        ),
-        backstory=(
-            "You are a quality assurance specialist with expertise in fact-checking "
-            "and identifying misinformation and hallucinations. You cross-reference "
-            "information, spot inconsistencies, and ensure all data meets high accuracy "
-            "standards. You rigorously check for hallucinated or invented content and "
-            "require that all facts be supported by evidence."
-        ),
+        config=agent_config["fact_checker"],
         tools=[exa_tool, scrape_tool],
         verbose=True,
         max_rpm=settings.AGENT_MAX_RPM,
@@ -72,13 +62,8 @@ def build_agents() -> dict[str, Agent]:
     )
 
     report_writer = Agent(
-        role="Report Writer",
-        goal="Write clear, concise, and well-structured reports based on gathered information",
-        backstory=(
-            "You are an expert writer who specializes in creating clear, well-structured "
-            "research reports. You synthesize complex information into readable formats and "
-            "always include proper citations and sources."
-        ),
+        config=agent_config["report_writer"],
+        tools=[CustomPlotTool()],          # ← new: auto-chart generation
         verbose=True,
         max_rpm=settings.AGENT_MAX_RPM,
         max_iter=settings.AGENT_MAX_ITER,
